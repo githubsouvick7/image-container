@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
+const fs = require("fs");
 const path = require("path");
-const fs = require("fs-extra");
 const cors = require("cors");
 
 const app = express();
@@ -22,57 +22,97 @@ app.use(
   })
 );
 
-// Set up Multer storage configuration
+const imagesDirectory = "/var/www/images/";
+
+if (!fs.existsSync(imagesDirectory)) {
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = "./uploads";
-    fs.mkdirSync(uploadPath, { recursive: true });
-    cb(null, uploadPath);
+    cb(null, imagesDirectory);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
-    );
+    const filename = Date.now() + "-" + file.originalname;
+    cb(null, filename);
   },
 });
 
-const upload = multer({ storage: storage });
-
-// Image upload route
-app.post("/upload", upload.single("image"), (req, res) => {
-  const file = req.file;
-  if (!file) {
-    return res.status(400).send("No file uploaded.");
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const mimeType = allowedTypes.test(file.mimetype);
+  if (mimeType) {
+    cb(null, true);
+  } else {
+    cb(new Error("File type not supported"), false);
   }
+};
 
-  const filePath = `/var/www/images/${file.filename}`;
+const upload = multer({
+  storage,
+  fileFilter,
+}).single("image");
 
-  // Move the image to the main images folder
-  fs.renameSync(file.path, filePath);
+app.post("/upload", (req, res) => {
+  console.log("Received upload request:", req.body);
 
-  // Send response with the image URL
-  res.json({ imageUrl: `https://images.jobspring.org/${file.filename}` });
-});
-
-// New route to serve the images via GET
-app.get("/images/:imageName", (req, res) => {
-  const imageName = req.params.imageName;
-
-  const imagePath = path.join(__dirname, "/var/www/images/", imageName);
-
-  // Check if the image exists
-  fs.exists(imagePath, (exists) => {
-    if (!exists) {
-      return res.status(404).send("Image not found.");
+  upload(req, res, (err) => {
+    if (err) {
+      console.error("Upload error:", err);
+      if (err.message === "File type not supported") {
+        return res.status(400).send("Only image files are allowed.");
+      }
+      return res.status(500).send("Error uploading file.");
     }
 
-    // Serve the image file
-    res.sendFile(imagePath);
+    const fileUrl = `https://images.jobspring.org/${req.file.filename}`;
+    console.log("Upload successful:", fileUrl);
+    res.status(200).json({ message: "File uploaded successfully", fileUrl });
   });
 });
 
+app.get("/image/:filename", (req, res) => {
+  const { filename } = req.params;
+  const filePath = path.join(imagesDirectory, filename);
+
+  fs.access(filePath, fs.constants.F_OK, (err) => {
+    if (err) {
+      return res.status(404).send("Image not found");
+    }
+
+    res.sendFile(filePath);
+  });
+});
+
+app.get("/images", (req, res) => {
+  fs.readdir(imagesDirectory, (err, files) => {
+    if (err) {
+      console.error("Error reading directory:", err);
+      return res.status(500).send("Error reading images directory.");
+    }
+
+    const imageFiles = files.filter((file) =>
+      /\.(jpg|jpeg|png|gif|webp)$/i.test(file)
+    );
+
+    if (imageFiles.length === 0) {
+      return res.status(404).send("No images found.");
+    }
+
+    const imageUrls = imageFiles.map(
+      (file) => `https://images.jobspring.org/${file}`
+    );
+
+    res.json({ images: imageUrls });
+  });
+});
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send("Something went wrong!");
+});
+
+// Start the server
 app.listen(8888, () => {
-  console.log("Server running on http://localhost:8888");
+  console.log(`Server is running on port ${PORT}`);
 });
