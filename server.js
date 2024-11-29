@@ -22,38 +22,57 @@ app.use(
   })
 );
 
-// Ensure uploads directory exists
-const UPLOAD_DIR = path.join(__dirname, "uploads");
-fs.ensureDirSync(UPLOAD_DIR);
-
-// Configure Multer for file uploads
+// Set up Multer storage configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, UPLOAD_DIR); // Save files in 'uploads' directory
+    const uploadPath = "./uploads";
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${file.originalname}`;
-    cb(null, uniqueName);
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(
+      null,
+      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
+    );
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({ storage: storage });
 
-// Upload Endpoint
+// Image upload route
 app.post("/upload", upload.single("image"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
+  const file = req.file;
+  if (!file) {
+    return res.status(400).send("No file uploaded.");
   }
-  const fileUrl = `http://static.jobspring.org/uploads/${req.file.filename}`;
-  res
-    .status(200)
-    .json({ message: "Image uploaded successfully", url: fileUrl });
+
+  const filePath = `/var/www/images/${file.filename}`;
+
+  // Move the image to the main images folder
+  fs.renameSync(file.path, filePath);
+
+  // Send response with the image URL
+  res.json({ imageUrl: `https://images.jobspring.org/${file.filename}` });
 });
 
-// Serve Uploaded Files
-app.use("/uploads", express.static(UPLOAD_DIR));
+// New route to serve the images via GET
+app.get("/images/:imageName", (req, res) => {
+  const imageName = req.params.imageName;
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  const imagePath = path.join(__dirname, "/var/www/images/", imageName);
+
+  // Check if the image exists
+  fs.exists(imagePath, (exists) => {
+    if (!exists) {
+      return res.status(404).send("Image not found.");
+    }
+
+    // Serve the image file
+    res.sendFile(imagePath);
+  });
+});
+
+app.listen(8888, () => {
+  console.log("Server running on http://localhost:8888");
 });
