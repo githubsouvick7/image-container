@@ -2,9 +2,25 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs-extra");
+const cors = require("cors");
 
 const app = express();
 const PORT = 5000;
+
+app.use(
+  cors({
+    origin: [
+      "https://www.jobspring.org",
+      "https://admin.jobspring.org",
+      "https://jobspring.org",
+      "http://localhost:3000",
+      "http://localhost:3001",
+    ],
+
+    methods: "GET,POST,PUT,DELETE",
+    credentials: true,
+  })
+);
 
 // Ensure uploads directory exists
 const UPLOAD_DIR = path.join(__dirname, "uploads");
